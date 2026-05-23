@@ -79,10 +79,19 @@ pipeline {
                         || true   # Don't fail pipeline on test failure — report instead
                 '''
             }
-            post {
-                always {
-                    junit allowEmptyResults: true, testResults: 'test-results.xml'
-                }
+post {
+    always {
+        echo 'Pipeline finished'
+    }
+
+    success {
+        echo 'Pipeline SUCCESS'
+    }
+
+    failure {
+        echo 'Pipeline FAILED'
+    }
+}
             }
         }
 
@@ -187,12 +196,19 @@ pipeline {
     } // end stages
 
     // ── Post actions ──────────────────────────────────────────
-    post {
-        success {
-            echo """
-╔══════════════════════════════════════════════════╗
-║  ✅ PIPELINE SUCCEEDED                           ║
-║  Build:   ${env.BUILD_NUMBER}                    ║
+post {
+    always {
+        echo 'Pipeline finished'
+    }
+
+    success {
+        echo 'Pipeline SUCCESS'
+    }
+
+    failure {
+        echo 'Pipeline FAILED'
+    }
+}
 ║  Tag:     ${IMAGE_TAG}                           ║
 ║  Branch:  ${env.BRANCH_NAME}                     ║
 ╚══════════════════════════════════════════════════╝
