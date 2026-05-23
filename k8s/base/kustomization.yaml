@@ -1,0 +1,19 @@
+# kustomization.yaml — base layer
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: sdls
+
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - secret.yaml
+  - mongodb.yaml
+  - logging-service.yaml
+  - inventory-service.yaml
+  - payment-service.yaml
+  - notification-service.yaml
+  - order-service.yaml
+  - api-gateway.yaml
+  - dashboard.yaml
+  - ingress.yaml

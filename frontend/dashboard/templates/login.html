@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Login — Distributed Logging</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+
+<div class="login-container">
+
+  <div class="login-card">
+
+    <h1>🔐 Login</h1>
+    <p>Distributed Logging Dashboard</p>
+
+    {% if error %}
+      <div class="alert-error">
+        {{ error }}
+      </div>
+    {% endif %}
+
+    <form method="POST">
+
+      <input
+        type="text"
+        name="username"
+        placeholder="Username"
+        required
+      >
+
+      <input
+        type="password"
+        name="password"
+        placeholder="Password"
+        required
+      >
+
+      <button type="submit" class="btn btn-primary">
+        Login
+      </button>
+
+    </form>
+
+    <div class="login-hint">
+      Demo Login:<br>
+      admin / admin123
+    </div>
+
+  </div>
+
+</div>
+
+</body>
+</html>

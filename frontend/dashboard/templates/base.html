@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}Distributed Logging System{% endblock %}</title>
+  <link rel="icon" type="image/x-icon" href="/static/favicon.ico" />
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+
+<body>
+
+  <!-- ── Sidebar ──────────────────────────────────────────────────────────── -->
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <div class="brand-icon">⬡</div>
+      <h1>Distributed Logging<br>System</h1>
+      <div class="version">v1.0.0 · microservices</div>
+    </div>
+
+    <nav class="sidebar-nav">
+      <div class="nav-section">Monitoring</div>
+      <a href="/" class="nav-item {% if active == 'home'      %}active{% endif %}">
+        <span class="nav-icon">⬡</span> Dashboard
+      </a>
+      <a href="/logs" class="nav-item {% if active == 'logs'      %}active{% endif %}">
+        <span class="nav-icon">≡</span> Logs Viewer
+      </a>
+      <a href="/analytics" class="nav-item {% if active == 'analytics' %}active{% endif %}">
+        <span class="nav-icon">◈</span> Analytics
+      </a>
+      <a href="/errors" class="nav-item {% if active == 'errors'    %}active{% endif %}">
+        <span class="nav-icon">⚠</span> Errors & Alerts
+      </a>
+
+      <div class="nav-section" style="margin-top:12px">Services</div>
+      <a href="/proxy/health" target="_blank" target="_blank" class="nav-item">
+        <span class="nav-icon">⤇</span> API Gateway :5000
+      </a>
+      <a href="/proxy/health" target="_blank" target="_blank" class="nav-item">
+        <span class="nav-icon">📦</span> Order :5001
+      </a>
+      <a href="/proxy/health" target="_blank" target="_blank" class="nav-item">
+        <span class="nav-icon">💳</span> Payment :5002
+      </a>
+      <a href="/proxy/health" target="_blank" target="_blank" class="nav-item">
+        <span class="nav-icon">🏭</span> Inventory :5003
+      </a>
+      <a href="/proxy/health" target="_blank" target="_blank" class="nav-item">
+        <span class="nav-icon">🔔</span> Notification :5004
+      </a>
+      <a href="/proxy/health" target="_blank" target="_blank" class="nav-item">
+        <span class="nav-icon">📋</span> Logging :5005
+      </a>
+    </nav>
+
+    <div class="sidebar-footer">
+      <span class="status-dot"></span>
+      <span>System online · MongoDB connected</span>
+    </div>
+  </aside>
+
+  <!-- ── Main ─────────────────────────────────────────────────────────────── -->
+  <main class="main">
+    <div class="topbar">
+      <div class="topbar-title">
+        <h2>{% block page_title %}Dashboard{% endblock %}</h2>
+        <p>{% block page_sub %}Smart Distributed Logging &amp; Failure Analysis System{% endblock %}</p>
+      </div>
+      <div class="topbar-actions">
+
+        <a href="/logout" class="btn btn-outline btn-sm">
+          🚪 Logout
+        </a>
+
+        <button class="btn btn-outline btn-sm" onclick="APP.toggleTheme()">
+          🌙 Theme
+        </button>
+
+        <button class="btn btn-outline btn-sm" onclick="location.reload()">
+          ↻ Refresh
+        </button>
+
+        <button id="simulate-btn" class="btn btn-primary btn-sm" onclick="APP.simulateOrder(1)">
+          Send Order
+        </button>
+
+      </div>
+
+    </div>
+
+    <div class="page-content">
+      {% block content %}{% endblock %}
+    </div>
+  </main>
+
+  <div id="toast-container"></div>
+
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+
+  <script src="/static/js/app.js"></script>
+  {% block scripts %}{% endblock %}
+</body>
+
+</html>

@@ -1,0 +1,30 @@
+# Dev overlay — lower replicas, debug on, local images
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+bases:
+  - ../../base
+
+namespace: sdls-dev
+
+namePrefix: dev-
+
+patches:
+  - patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+    target:
+      kind: Deployment
+      name: ".*"
+
+  - patch: |-
+      - op: replace
+        path: /data/LOG_LEVEL
+        value: "DEBUG"
+      - op: replace
+        path: /data/FLASK_DEBUG
+        value: "1"
+    target:
+      kind: ConfigMap
+      name: sdls-config

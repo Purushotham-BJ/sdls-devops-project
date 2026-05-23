@@ -1,0 +1,254 @@
+{% extends "base.html" %}
+{% set active = "home" %}
+{% block title %}Dashboard — Distributed Logging{% endblock %}
+
+{% block content %}
+
+<!-- ── Simulate Bar ──────────────────────────────────────────────────────── -->
+<div class="simulate-box">
+  <p>🚀 <strong>Simulation:</strong> Send test orders through the entire microservice pipeline to generate distributed traces and logs.</p>
+  <button class="btn btn-outline btn-sm" onclick="APP.simulateOrder(5)">Bulk × 5</button>
+  <button class="btn btn-outline btn-sm" onclick="APP.simulateOrder(20)">Bulk × 20</button>
+</div>
+
+<!-- ── Stats ─────────────────────────────────────────────────────────────── -->
+<div class="stats-grid">
+  <div class="stat-card total">
+    <div class="stat-label">Total Requests</div>
+    <div class="stat-value" id="stat-total">—</div>
+    <div class="stat-sub" id="stat-total-sub">loading...</div>
+    <div class="stat-icon">⬡</div>
+  </div>
+  <div class="stat-card errors">
+    <div class="stat-label">Total Errors</div>
+    <div class="stat-value" id="stat-errors">—</div>
+    <div class="stat-sub" id="stat-error-rate">—</div>
+    <div class="stat-icon">⚠</div>
+  </div>
+  <div class="stat-card success">
+    <div class="stat-label">Successful</div>
+    <div class="stat-value" id="stat-success">—</div>
+    <div class="stat-sub">transactions</div>
+    <div class="stat-icon">✓</div>
+  </div>
+  <div class="stat-card services">
+    <div class="stat-label">Active Services</div>
+    <div class="stat-value" id="stat-services">—</div>
+    <div class="stat-sub">microservices</div>
+    <div class="stat-icon">◈</div>
+  </div>
+</div>
+
+<!-- ── Latest Logs + Service Health ─────────────────────────────────────── -->
+<div class="grid-2 mb-24">
+
+  <!-- Latest Logs -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Latest Logs</span>
+      <a href="/logs" class="btn btn-outline btn-sm">View All</a>
+    </div>
+    <div class="table-wrap" id="latest-logs-container">
+      <div class="empty-state"><span class="spinner"></span></div>
+    </div>
+  </div>
+
+  <!-- Service Health -->
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Service Health</span>
+      <span class="text-sm text-muted" id="health-updated"></span>
+    </div>
+    <div id="service-health-list">
+      <div class="empty-state"><span class="spinner"></span></div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ── Error Rate + Timeline ─────────────────────────────────────────────── -->
+<div class="grid-2">
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Error Distribution by Service</span>
+    </div>
+    <canvas id="chart-error-dist" height="220"></canvas>
+  </div>
+
+  <div class="card">
+    <div class="card-header">
+      <span class="card-title">Requests Over Time (24h)</span>
+    </div>
+    <canvas id="chart-timeline" height="220"></canvas>
+  </div>
+
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+const { apiFetch, API, fmtTime, fmtMs, statusBadge, renderLogsTable } = window.APP;
+
+Chart.defaults.color          = '#94a3b8';
+Chart.defaults.borderColor    = '#252a38';
+Chart.defaults.backgroundColor = 'rgba(0,212,170,0.08)';
+
+async function loadOverview() {
+  const data = await apiFetch(`${APP.PROXY}/proxy/analytics/overview`);
+  if (!data?.success) return;
+  const d = data.data;
+  document.getElementById("stat-total").textContent    = d.total_requests ?? 0;
+  document.getElementById("stat-errors").textContent   = d.total_errors ?? 0;
+  document.getElementById("stat-success").textContent  = d.success_count ?? 0;
+  document.getElementById("stat-services").textContent = d.active_services ?? 0;
+  document.getElementById("stat-total-sub").textContent = `${d.error_rate ?? 0}% failure rate`;
+  document.getElementById("stat-error-rate").textContent = `${d.error_rate ?? 0}% of requests`;
+}
+
+async function loadLatestLogs() {
+  const data = await apiFetch(`${APP.PROXY}/proxy/logs?limit=8`);
+  if (!data) return;
+
+  const container = document.getElementById("latest-logs-container");
+  const logs = data.logs || [];
+  if (!logs.length) {
+    container.innerHTML = '<div class="empty-state">No logs yet. Simulate some orders!</div>';
+    return;
+  }
+
+  const rows = logs.map(l => `
+    <tr>
+      <td class="td-mono text-accent" style="font-size:11px">${l.trace_id?.slice(0,10)}…</td>
+      <td class="td-mono" style="color:var(--info);font-size:11px">${l.service_name}</td>
+      <td>${statusBadge(l.status)}</td>
+      <td style="font-size:12px;max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"
+          title="${l.message}">${l.message}</td>
+    </tr>`).join("");
+
+  container.innerHTML = `
+    <table>
+      <thead><tr><th>Trace</th><th>Service</th><th>Status</th><th>Message</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+async function loadServiceHealth() {
+  const data = await apiFetch(`${APP.PROXY}/proxy/analytics/services`);
+  const el   = document.getElementById("service-health-list");
+  if (!data?.success || !data.data.length) {
+    el.innerHTML = '<div class="empty-state">No service data yet.</div>';
+    return;
+  }
+
+  const SERVICES = {
+    "api-gateway":          { port: 5000, icon: "⤇" },
+    "order-service":        { port: 5001, icon: "📦" },
+    "payment-service":      { port: 5002, icon: "💳" },
+    "inventory-service":    { port: 5003, icon: "🏭" },
+    "notification-service": { port: 5004, icon: "🔔" },
+    "logging-service":      { port: 5005, icon: "📋" },
+  };
+
+  el.innerHTML = data.data.map(s => {
+    const info  = SERVICES[s.service] || { port: "?", icon: "◈" };
+    const color = s.error_rate > 40 ? 'var(--error)' :
+                  s.error_rate > 15 ? 'var(--warning)' : 'var(--success)';
+    return `
+      <div class="service-row">
+        <div class="service-dot" style="background:${color}"></div>
+        <span class="service-name">${info.icon} ${s.service}</span>
+        <span class="badge ${s.error_rate > 40 ? 'badge-error' : s.error_rate > 15 ? 'badge-warning' : 'badge-success'}"
+              style="font-size:10px">${s.error_rate}% err</span>
+        <span class="service-port">:${info.port}</span>
+      </div>`;
+  }).join("");
+  document.getElementById("health-updated").textContent = "updated just now";
+}
+
+let errorDistChart, timelineChart;
+
+async function loadCharts() {
+  // Error distribution
+  const svcData = await apiFetch(`${APP.PROXY}/proxy/analytics/services`);
+  if (svcData?.success && svcData.data.length) {
+    const labels  = svcData.data.map(s => s.service.replace("-service",""));
+    const errors  = svcData.data.map(s => s.errors);
+    const totals  = svcData.data.map(s => s.total);
+    const ctx = document.getElementById("chart-error-dist").getContext("2d");
+    if (errorDistChart) errorDistChart.destroy();
+    errorDistChart = new Chart(ctx, {
+      type: "bar",
+      data: {
+        labels,
+        datasets: [
+          { label: "Success", data: totals.map((t,i) => t - errors[i]),
+            backgroundColor: "rgba(34,197,94,0.5)", borderColor: "rgba(34,197,94,0.8)", borderWidth: 1 },
+          { label: "Error",   data: errors,
+            backgroundColor: "rgba(239,68,68,0.5)", borderColor: "rgba(239,68,68,0.8)", borderWidth: 1 },
+        ]
+      },
+      options: {
+        responsive: true,
+        plugins: { legend: { labels: { font: { family: "'IBM Plex Mono'" } } } },
+        scales: {
+          x: { stacked: true, grid: { color: "rgba(37,42,56,0.8)" } },
+          y: { stacked: true, grid: { color: "rgba(37,42,56,0.8)" }, beginAtZero: true }
+        }
+      }
+    });
+  }
+
+  // Timeline
+  const tlData = await apiFetch(`${APP.PROXY}/proxy/analytics/timeline?hours=24`);
+  if (tlData?.success && tlData.data.length) {
+    const labels = tlData.data.map(d => d._id?.slice(11) + ":00");
+    const counts = tlData.data.map(d => d.count);
+    const errors = tlData.data.map(d => d.errors);
+    const ctx = document.getElementById("chart-timeline").getContext("2d");
+    if (timelineChart) timelineChart.destroy();
+    timelineChart = new Chart(ctx, {
+      type: "line",
+      data: {
+        labels,
+        datasets: [
+          { label: "Requests", data: counts,
+            borderColor: "rgba(0,212,170,0.9)", backgroundColor: "rgba(0,212,170,0.08)",
+            fill: true, tension: 0.3, borderWidth: 2 },
+          { label: "Errors",   data: errors,
+            borderColor: "rgba(239,68,68,0.9)", backgroundColor: "rgba(239,68,68,0.08)",
+            fill: true, tension: 0.3, borderWidth: 2 },
+        ]
+      },
+      options: {
+        responsive: true,
+        plugins: { legend: { labels: { font: { family: "'IBM Plex Mono'" } } } },
+        scales: {
+          x: { grid: { color: "rgba(37,42,56,0.8)" } },
+          y: { grid: { color: "rgba(37,42,56,0.8)" }, beginAtZero: true }
+        }
+      }
+    });
+  }
+}
+
+// Expose for topbar refresh button
+window.loadOverview   = loadOverview;
+window.loadLatestLogs = loadLatestLogs;
+
+// Init
+loadOverview();
+loadLatestLogs();
+loadServiceHealth();
+loadCharts();
+
+// Auto-refresh every 10s
+setInterval(() => {
+  loadOverview();
+  loadLatestLogs();
+  loadServiceHealth();
+}, 10000);
+</script>
+{% endblock %}

@@ -1,0 +1,208 @@
+{% extends "base.html" %}
+{% set active = "analytics" %}
+{% block title %}Analytics — Distributed Logging{% endblock %}
+{% block page_title %}Analytics{% endblock %}
+{% block page_sub %}Service performance, failure rates and response time insights{% endblock %}
+
+{% block content %}
+
+<!-- ── Service Breakdown Table ────────────────────────────────────────────── -->
+<div class="card mb-24">
+  <div class="card-header">
+    <span class="card-title">Service Performance Breakdown</span>
+    <span class="text-sm text-muted" id="breakdown-ts"></span>
+  </div>
+  <div class="table-wrap" id="breakdown-table">
+    <div class="empty-state"><span class="spinner"></span></div>
+  </div>
+</div>
+
+<!-- ── Charts Row ─────────────────────────────────────────────────────────── -->
+<div class="grid-2 mb-24">
+  <div class="card">
+    <div class="card-header"><span class="card-title">Requests per Service</span></div>
+    <canvas id="chart-requests" height="250"></canvas>
+  </div>
+  <div class="card">
+    <div class="card-header"><span class="card-title">Failure Rate % per Service</span></div>
+    <canvas id="chart-failure-rate" height="250"></canvas>
+  </div>
+</div>
+
+<div class="grid-2">
+  <div class="card">
+    <div class="card-header"><span class="card-title">Average Response Time (ms)</span></div>
+    <canvas id="chart-resp-time" height="250"></canvas>
+  </div>
+  <div class="card">
+    <div class="card-header"><span class="card-title">Hourly Request Volume (24h)</span></div>
+    <canvas id="chart-hourly" height="250"></canvas>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+const { apiFetch, API } = window.APP;
+
+Chart.defaults.color       = '#94a3b8';
+Chart.defaults.borderColor = '#252a38';
+
+const COLORS = [
+  'rgba(0,212,170,0.7)',  'rgba(59,130,246,0.7)',
+  'rgba(245,158,11,0.7)', 'rgba(239,68,68,0.7)',
+  'rgba(168,85,247,0.7)', 'rgba(236,72,153,0.7)',
+];
+
+const BORDER = COLORS.map(c => c.replace('0.7','1'));
+
+let charts = {};
+function destroyCharts() {
+  Object.values(charts).forEach(c => c?.destroy());
+  charts = {};
+}
+
+async function loadAnalytics() {
+  destroyCharts();
+
+  const [svcData, tlData] = await Promise.all([
+    apiFetch(`${APP.PROXY}/proxy/analytics/services`),
+    apiFetch(`${APP.PROXY}/proxy/analytics/timeline?hours=24`),
+  ]);
+
+  if (svcData?.success && svcData.data.length) {
+    const d = svcData.data;
+    const labels     = d.map(s => s.service.replace('-service','').replace('api-gateway','gateway'));
+    const totals     = d.map(s => s.total);
+    const errors     = d.map(s => s.errors);
+    const errorRates = d.map(s => s.error_rate);
+    const respTimes  = d.map(s => s.avg_resp_time);
+
+    // Table
+    const rows = d.map((s,i) => `
+      <tr>
+        <td class="td-mono" style="color:var(--info)">${s.service}</td>
+        <td class="td-mono">${s.total}</td>
+        <td class="td-mono" style="color:var(--success)">${s.success}</td>
+        <td class="td-mono" style="color:var(--error)">${s.errors}</td>
+        <td>
+          <div style="display:flex;align-items:center;gap:8px">
+            <div class="progress-bar" style="width:80px">
+              <div class="progress-fill ${s.error_rate > 30 ? 'error' : ''}"
+                   style="width:${Math.min(s.error_rate,100)}%;background:${s.error_rate>30?'var(--error)':'var(--accent)'}"></div>
+            </div>
+            <span class="td-mono text-sm">${s.error_rate}%</span>
+          </div>
+        </td>
+        <td class="td-mono">${s.avg_resp_time} ms</td>
+      </tr>`).join("");
+
+    document.getElementById("breakdown-table").innerHTML = `
+      <table>
+        <thead><tr>
+          <th>Service</th><th>Total</th><th>Success</th><th>Errors</th><th>Error Rate</th><th>Avg Resp</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+    document.getElementById("breakdown-ts").textContent = "updated just now";
+
+    // Chart: requests per service
+    charts.requests = new Chart(
+      document.getElementById("chart-requests").getContext("2d"), {
+        type: "doughnut",
+        data: { labels, datasets: [{ data: totals, backgroundColor: COLORS, borderColor: BORDER, borderWidth: 1 }] },
+        options: { responsive: true, plugins: { legend: { position: "right" } } }
+      }
+    );
+
+    // Chart: failure rate
+    charts.failure = new Chart(
+      document.getElementById("chart-failure-rate").getContext("2d"), {
+        type: "bar",
+        data: {
+          labels,
+          datasets: [{
+            label: "Error Rate %",
+            data: errorRates,
+            backgroundColor: errorRates.map(r => r > 30 ? 'rgba(239,68,68,0.6)' : r > 15 ? 'rgba(245,158,11,0.6)' : 'rgba(34,197,94,0.6)'),
+            borderWidth: 1,
+          }]
+        },
+        options: {
+          responsive: true,
+          scales: {
+            x: { grid: { color: "rgba(37,42,56,0.8)" } },
+            y: { grid: { color: "rgba(37,42,56,0.8)" }, beginAtZero: true, max: 100 }
+          }
+        }
+      }
+    );
+
+    // Chart: response time
+    charts.resp = new Chart(
+      document.getElementById("chart-resp-time").getContext("2d"), {
+        type: "bar",
+        data: {
+          labels,
+          datasets: [{
+            label: "Avg Response Time (ms)",
+            data: respTimes,
+            backgroundColor: 'rgba(59,130,246,0.5)',
+            borderColor: 'rgba(59,130,246,0.9)',
+            borderWidth: 1,
+          }]
+        },
+        options: {
+          responsive: true,
+          scales: {
+            x: { grid: { color: "rgba(37,42,56,0.8)" } },
+            y: { grid: { color: "rgba(37,42,56,0.8)" }, beginAtZero: true }
+          }
+        }
+      }
+    );
+  } else {
+    document.getElementById("breakdown-table").innerHTML =
+      '<div class="empty-state">No service data yet. Simulate some orders!</div>';
+  }
+
+  // Hourly timeline
+  if (tlData?.success && tlData.data.length) {
+    const labels = tlData.data.map(d => d._id?.slice(11) + ":00");
+    const counts = tlData.data.map(d => d.count);
+    const errors = tlData.data.map(d => d.errors);
+    charts.hourly = new Chart(
+      document.getElementById("chart-hourly").getContext("2d"), {
+        type: "line",
+        data: {
+          labels,
+          datasets: [
+            { label: "Total Requests", data: counts,
+              borderColor: "rgba(0,212,170,0.9)", backgroundColor: "rgba(0,212,170,0.08)",
+              fill: true, tension: 0.3, borderWidth: 2 },
+            { label: "Errors", data: errors,
+              borderColor: "rgba(239,68,68,0.9)", backgroundColor: "rgba(239,68,68,0.08)",
+              fill: true, tension: 0.3, borderWidth: 2 },
+          ]
+        },
+        options: {
+          responsive: true,
+          scales: {
+            x: { grid: { color: "rgba(37,42,56,0.8)" } },
+            y: { grid: { color: "rgba(37,42,56,0.8)" }, beginAtZero: true }
+          }
+        }
+      }
+    );
+  } else {
+    document.getElementById("chart-hourly").parentElement.innerHTML +=
+      '<div class="empty-state" style="margin-top:-220px">No timeline data yet.</div>';
+  }
+}
+
+loadAnalytics();
+setInterval(loadAnalytics, 20000);
+</script>
+{% endblock %}

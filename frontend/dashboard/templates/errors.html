@@ -1,0 +1,198 @@
+{% extends "base.html" %}
+{% set active = "errors" %}
+{% block title %}Errors & Alerts — Distributed Logging{% endblock %}
+{% block page_title %}Errors & Alerts{% endblock %}
+{% block page_sub %}Active alerts, recent failures, and error event timelines{% endblock %}
+
+{% block content %}
+
+<!-- ── Active Alerts ─────────────────────────────────────────────────────── -->
+<div class="card mb-24">
+  <div class="card-header">
+    <span class="card-title">⚠ Active Alerts</span>
+    <span class="text-sm" id="alert-count" style="color:var(--warning)"></span>
+  </div>
+  <div id="alerts-container">
+    <div class="empty-state"><span class="spinner"></span></div>
+  </div>
+</div>
+
+<!-- ── Error Stats Row ────────────────────────────────────────────────────── -->
+<div class="stats-grid mb-24">
+  <div class="stat-card errors">
+    <div class="stat-label">Total Errors</div>
+    <div class="stat-value" id="err-total">—</div>
+    <div class="stat-sub">all time</div>
+    <div class="stat-icon">⚠</div>
+  </div>
+  <div class="stat-card errors" style="--top-color:var(--warning)">
+    <div class="stat-label">Error Rate</div>
+    <div class="stat-value" id="err-rate">—</div>
+    <div class="stat-sub">% of all requests</div>
+    <div class="stat-icon">%</div>
+  </div>
+  <div class="stat-card errors">
+    <div class="stat-label">Most Failing</div>
+    <div class="stat-value" id="err-worst" style="font-size:14px;padding-top:6px">—</div>
+    <div class="stat-sub" id="err-worst-rate">—</div>
+    <div class="stat-icon">⬡</div>
+  </div>
+</div>
+
+<!-- ── Recent Error Logs ──────────────────────────────────────────────────── -->
+<div class="card mb-24">
+  <div class="card-header">
+    <span class="card-title">Recent Errors</span>
+    <a href="/logs?status=ERROR" class="btn btn-outline btn-sm">All Errors</a>
+  </div>
+  <div class="table-wrap" id="error-logs-table">
+    <div class="empty-state"><span class="spinner"></span></div>
+  </div>
+</div>
+
+<!-- ── Error Timeline Chart ───────────────────────────────────────────────── -->
+<div class="card">
+  <div class="card-header"><span class="card-title">Error Timeline (24h)</span></div>
+  <canvas id="chart-error-timeline" height="200"></canvas>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+const { apiFetch, API, fmtTime, fmtMs, statusBadge } = window.APP;
+
+Chart.defaults.color       = '#94a3b8';
+Chart.defaults.borderColor = '#252a38';
+
+async function loadAlerts() {
+  const data = await apiFetch(`${APP.PROXY}/proxy/alerts`);
+  const el   = document.getElementById("alerts-container");
+  const countEl = document.getElementById("alert-count");
+
+  if (!data) {
+    el.innerHTML = '<div class="empty-state">Could not reach logging service.</div>';
+    return;
+  }
+
+  const alerts = data.alerts || [];
+  countEl.textContent = alerts.length ? `${alerts.length} alert(s) active` : "";
+
+  if (!alerts.length) {
+    el.innerHTML = `
+      <div style="padding:20px;display:flex;align-items:center;gap:12px;color:var(--success)">
+        <span style="font-size:20px">✓</span>
+        <div>
+          <div style="font-weight:500">All Systems Normal</div>
+          <div class="text-sm text-muted">No alerts triggered in the last 5 minutes.</div>
+        </div>
+      </div>`;
+    return;
+  }
+
+  el.innerHTML = alerts.map(a => `
+    <div class="alert-banner ${a.severity === 'CRITICAL' ? 'critical' : 'warning'}">
+      <span class="alert-icon">${a.severity === 'CRITICAL' ? '🔴' : '🟡'}</span>
+      <div>
+        <div style="font-weight:600;margin-bottom:4px">[${a.severity}] ${a.service}</div>
+        <div>${a.message}</div>
+        <div class="text-sm" style="margin-top:4px;opacity:0.7">
+          Last error: ${fmtTime(a.last_error)} ·
+          Sample: ${(a.sample_errors || []).slice(0,2).join(' / ')}
+        </div>
+      </div>
+    </div>`).join("");
+}
+
+async function loadErrorStats() {
+  const data = await apiFetch(`${APP.PROXY}/proxy/analytics/overview`);
+  if (!data?.success) return;
+  const d = data.data;
+  document.getElementById("err-total").textContent = d.total_errors ?? 0;
+  document.getElementById("err-rate").textContent  = `${d.error_rate ?? 0}%`;
+
+  const svc = await apiFetch(`${APP.PROXY}/proxy/analytics/services`);
+  if (svc?.success && svc.data.length) {
+    const worst = svc.data.reduce((a,b) => (a.error_rate > b.error_rate ? a : b));
+    document.getElementById("err-worst").textContent      = worst.service;
+    document.getElementById("err-worst-rate").textContent = `${worst.error_rate}% failure rate`;
+  }
+}
+
+async function loadRecentErrors() {
+  const data = await apiFetch(`${APP.PROXY}/proxy/logs?status=ERROR&limit=30`);
+  const el   = document.getElementById("error-logs-table");
+
+  if (!data) {
+    el.innerHTML = '<div class="empty-state">Cannot reach logging service.</div>';
+    return;
+  }
+
+  const logs = data.logs || [];
+  if (!logs.length) {
+    el.innerHTML = '<div class="empty-state">No errors recorded yet. 🎉</div>';
+    return;
+  }
+
+  const rows = logs.map(l => `
+    <tr>
+      <td class="td-mono text-accent" style="font-size:11px">${l.trace_id?.slice(0,12)}…</td>
+      <td class="td-mono" style="color:var(--info)">${l.service_name}</td>
+      <td>${statusBadge(l.status)}</td>
+      <td style="color:var(--error)">${l.message}</td>
+      <td class="td-mono text-muted">${fmtMs(l.response_time)}</td>
+      <td class="td-mono text-muted" style="white-space:nowrap">${fmtTime(l.timestamp)}</td>
+    </tr>`).join("");
+
+  el.innerHTML = `
+    <table>
+      <thead><tr>
+        <th>Trace ID</th><th>Service</th><th>Status</th>
+        <th>Error Message</th><th>Resp Time</th><th>Timestamp</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+async function loadErrorTimeline() {
+  const tlData = await apiFetch(`${APP.PROXY}/proxy/analytics/timeline?hours=24`);
+  if (!tlData?.success || !tlData.data.length) return;
+
+  const labels = tlData.data.map(d => d._id?.slice(11) + ":00");
+  const errors = tlData.data.map(d => d.errors);
+
+  new Chart(document.getElementById("chart-error-timeline").getContext("2d"), {
+    type: "bar",
+    data: {
+      labels,
+      datasets: [{
+        label: "Errors",
+        data: errors,
+        backgroundColor: 'rgba(239,68,68,0.5)',
+        borderColor: 'rgba(239,68,68,0.9)',
+        borderWidth: 1,
+      }]
+    },
+    options: {
+      responsive: true,
+      scales: {
+        x: { grid: { color: "rgba(37,42,56,0.8)" } },
+        y: { grid: { color: "rgba(37,42,56,0.8)" }, beginAtZero: true }
+      }
+    }
+  });
+}
+
+loadAlerts();
+loadErrorStats();
+loadRecentErrors();
+loadErrorTimeline();
+
+setInterval(() => {
+  loadAlerts();
+  loadErrorStats();
+  loadRecentErrors();
+}, 10000);
+</script>
+{% endblock %}

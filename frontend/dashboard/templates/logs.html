@@ -1,0 +1,195 @@
+{% extends "base.html" %}
+{% set active = "logs" %}
+{% block title %}Logs Viewer — Distributed Logging{% endblock %}
+{% block page_title %}Logs Viewer{% endblock %}
+{% block page_sub %}Search, filter and inspect distributed request logs{% endblock %}
+
+{% block content %}
+
+<!-- ── Filters ───────────────────────────────────────────────────────────── -->
+<div class="card mb-24">
+  <div class="card-header">
+    <span class="card-title">Filter Logs</span>
+    <button class="btn btn-outline btn-sm" onclick="clearFilters()">Clear Filters</button>
+  </div>
+  <div class="form-row">
+    <div class="form-group">
+      <label>Trace ID</label>
+      <input type="text" id="filter-trace" placeholder="e.g. A3F7B2..." style="width:220px" />
+    </div>
+    <div class="form-group">
+      <label>Service</label>
+      <select id="filter-service">
+        <option value="">All Services</option>
+        <option value="api-gateway">api-gateway</option>
+        <option value="order-service">order-service</option>
+        <option value="payment-service">payment-service</option>
+        <option value="inventory-service">inventory-service</option>
+        <option value="notification-service">notification-service</option>
+        <option value="logging-service">logging-service</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Status</label>
+      <select id="filter-status">
+        <option value="">All Statuses</option>
+        <option value="SUCCESS">SUCCESS</option>
+        <option value="ERROR">ERROR</option>
+        <option value="WARNING">WARNING</option>
+        <option value="INFO">INFO</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Limit</label>
+      <select id="filter-limit">
+        <option value="50">50</option>
+        <option value="100" selected>100</option>
+        <option value="200">200</option>
+        <option value="500">500</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>&nbsp;</label>
+      <button class="btn btn-primary" onclick="loadLogs()">🔍 Search</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Results ───────────────────────────────────────────────────────────── -->
+<div class="card mb-24">
+  <div class="card-header">
+    <span class="card-title">Log Entries</span>
+    <span class="text-sm text-muted" id="log-count">—</span>
+  </div>
+  <div class="table-wrap" id="logs-table">
+    <div class="empty-state"><span class="spinner"></span> Loading logs…</div>
+  </div>
+</div>
+
+<!-- ── Trace Detail Modal ─────────────────────────────────────────────────── -->
+<div id="trace-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:200;overflow:auto">
+  <div style="max-width:700px;margin:60px auto;padding:0 16px">
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">Trace Timeline</span>
+        <button class="btn btn-outline btn-sm" onclick="closeModal()">✕ Close</button>
+      </div>
+      <div id="trace-detail-content"></div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script>
+const { apiFetch, API, fmtTime, fmtMs, statusBadge } = window.APP;
+
+async function loadLogs() {
+  const trace   = document.getElementById("filter-trace").value.trim();
+  const service = document.getElementById("filter-service").value;
+  const status  = document.getElementById("filter-status").value;
+  const limit   = document.getElementById("filter-limit").value;
+
+  let url = `${APP.PROXY}/proxy/logs?limit=${limit}`;
+  if (trace)   url += `&trace_id=${encodeURIComponent(trace)}`;
+  if (service) url += `&service=${encodeURIComponent(service)}`;
+  if (status)  url += `&status=${encodeURIComponent(status)}`;
+
+  document.getElementById("logs-table").innerHTML =
+    '<div class="empty-state"><span class="spinner"></span> Fetching…</div>';
+
+  const data = await apiFetch(url);
+  const countEl = document.getElementById("log-count");
+
+  if (!data) {
+    document.getElementById("logs-table").innerHTML =
+      '<div class="empty-state">Could not reach logging service.</div>';
+    return;
+  }
+
+  const logs = data.logs || [];
+  countEl.textContent = `${logs.length} entries`;
+
+  if (!logs.length) {
+    document.getElementById("logs-table").innerHTML =
+      '<div class="empty-state">No logs match the current filters.</div>';
+    return;
+  }
+
+  const rows = logs.map(l => `
+    <tr>
+      <td>
+        <span class="td-mono text-accent" style="font-size:11px;cursor:pointer"
+              onclick="showTrace('${l.trace_id}')"
+              title="Click to see full trace">${l.trace_id}</span>
+      </td>
+      <td class="td-mono" style="color:var(--info)">${l.service_name}</td>
+      <td>${statusBadge(l.status)}</td>
+      <td style="max-width:300px;word-break:break-word">${l.message}</td>
+      <td class="td-mono text-muted">${fmtMs(l.response_time)}</td>
+      <td class="td-mono text-muted" style="white-space:nowrap">${fmtTime(l.timestamp)}</td>
+    </tr>`).join("");
+
+  document.getElementById("logs-table").innerHTML = `
+    <table>
+      <thead><tr>
+        <th>Trace ID</th><th>Service</th><th>Status</th>
+        <th>Message</th><th>Resp Time</th><th>Timestamp</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+}
+
+async function showTrace(traceId) {
+  document.getElementById("trace-detail-content").innerHTML =
+    '<div class="empty-state"><span class="spinner"></span> Loading trace…</div>';
+  document.getElementById("trace-modal").style.display = "block";
+
+  const data = await apiFetch(`${APP.PROXY}/proxy/logs?trace_id=${traceId}`);
+  if (!data?.success) {
+    document.getElementById("trace-detail-content").innerHTML =
+      '<div class="empty-state">Could not load trace data.</div>';
+    return;
+  }
+
+  const d    = data.data;
+  const logs = d.logs || [];
+
+  const items = logs.map(l => `
+    <div class="timeline-item ${l.status.toLowerCase()}">
+      <div class="timeline-service">${l.service_name}</div>
+      <div class="timeline-message">${l.message}</div>
+      <div class="timeline-meta">${fmtTime(l.timestamp)} · ${fmtMs(l.response_time)} · ${statusBadge(l.status)}</div>
+    </div>`).join("");
+
+  document.getElementById("trace-detail-content").innerHTML = `
+    <div style="margin-bottom:16px;padding:12px;background:var(--bg-surface);border-radius:4px">
+      <span class="td-mono text-accent" style="font-size:13px">${traceId}</span>
+      <span style="margin-left:12px">${statusBadge(d.status)}</span>
+      <span class="text-sm text-muted" style="margin-left:12px">${d.total_logs} log entries · ${(d.services||[]).join(', ')}</span>
+    </div>
+    <div class="timeline">${items || '<div class="empty-state">No events.</div>'}</div>`;
+}
+
+function closeModal() {
+  document.getElementById("trace-modal").style.display = "none";
+}
+
+function clearFilters() {
+  document.getElementById("filter-trace").value   = "";
+  document.getElementById("filter-service").value = "";
+  document.getElementById("filter-status").value  = "";
+  document.getElementById("filter-limit").value   = "100";
+  loadLogs();
+}
+
+// Close modal on backdrop click
+document.getElementById("trace-modal").addEventListener("click", function(e) {
+  if (e.target === this) closeModal();
+});
+
+loadLogs();
+setInterval(loadLogs, 15000);
+</script>
+{% endblock %}

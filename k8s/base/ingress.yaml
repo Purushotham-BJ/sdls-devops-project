@@ -1,0 +1,38 @@
+# Ingress — exposes dashboard and API gateway externally
+# Requires: nginx ingress controller (kubectl apply -f https://k8s.github.io/ingress-nginx/...)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: sdls-ingress
+  namespace: sdls
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "10"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: sdls.local      # Change to your real domain in production
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: dashboard
+                port:
+                  number: 5006
+          - path: /api
+            pathType: Prefix
+            backend:
+              service:
+                name: api-gateway
+                port:
+                  number: 5000
+          - path: /login
+            pathType: Exact
+            backend:
+              service:
+                name: api-gateway
+                port:
+                  number: 5000

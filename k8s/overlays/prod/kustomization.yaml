@@ -1,0 +1,50 @@
+# Prod overlay — higher replicas, stricter resources, real image tags
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+bases:
+  - ../../base
+
+namespace: sdls
+
+images:
+  - name: purushothambj/api-gateway
+    newName: yourdockerhubuser/api-gateway
+    newTag: "v42"                  # pin to a specific build — never use :latest in prod
+  - name: purushothambj/order-service
+    newName: yourdockerhubuser/order-service
+    newTag: "v42"
+  - name: purushothambj/payment-service
+    newName: yourdockerhubuser/payment-service
+    newTag: "v42"
+  - name: purushothambj/inventory-service
+    newName: yourdockerhubuser/inventory-service
+    newTag: "v42"
+  - name: purushothambj/notification-service
+    newName: yourdockerhubuser/notification-service
+    newTag: "v42"
+  - name: purushothambj/logging-service
+    newName: yourdockerhubuser/logging-service
+    newTag: "v42"
+  - name: purushothambj/dashboard
+    newName: yourdockerhubuser/dashboard
+    newTag: "v42"
+
+patches:
+  # api-gateway: 3 replicas minimum in prod
+  - patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 3
+    target:
+      kind: Deployment
+      name: api-gateway
+
+  # order-service: 3 replicas minimum
+  - patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 3
+    target:
+      kind: Deployment
+      name: order-service
