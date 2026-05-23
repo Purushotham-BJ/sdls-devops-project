@@ -1,103 +1,54 @@
-# ── dashboard ──────────────────────────────────────────────────
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: dashboard
-  namespace: sdls-dev
-  labels:
-    app: dashboard
+  namespace: sdls
+
 spec:
   replicas: 1
+
   selector:
     matchLabels:
       app: dashboard
-  strategy:
-    type: RollingUpdate
-    rollingUpdate:
-      maxSurge: 1
-      maxUnavailable: 0      # Zero-downtime deploys
+
   template:
     metadata:
       labels:
         app: dashboard
+
     spec:
-      # Non-root security context
-      securityContext:
-        runAsNonRoot: true
-        runAsUser: 1000
       containers:
         - name: dashboard
-          image: purushothambj/dashboard:latest
+          image: dashboard:latest
           imagePullPolicy: Never
+
           ports:
             - containerPort: 5006
+
           env:
             - name: API_GATEWAY_URL
-              value: "http://dev-api-gateway:5000"
+              value: "http://api-gateway.sdls.svc.cluster.local:5000"
+
           envFrom:
             - configMapRef:
                 name: sdls-config
+
             - secretRef:
                 name: sdls-secrets
-          livenessProbe:
-            httpGet:
-              path: /health
-              port: 5006
-            initialDelaySeconds: 20
-            periodSeconds: 30
-            timeoutSeconds: 5
-            failureThreshold: 3
-          readinessProbe:
-            httpGet:
-              path: /health
-              port: 5006
-            initialDelaySeconds: 10
-            periodSeconds: 10
-            timeoutSeconds: 3
-          resources:
-            requests:
-              memory: "128Mi"
-              cpu: "100m"
-            limits:
-              memory: "256Mi"
-              cpu: "500m"
+
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: dashboard
-  namespace: sdls-dev
+  namespace: sdls
+
 spec:
   selector:
     app: dashboard
+
   ports:
     - port: 5006
       targetPort: 5006
+
   type: ClusterIP
----
-# Horizontal Pod Autoscaler — scale up when CPU > 70%
-apiVersion: autoscaling/v2
-kind: HorizontalPodAutoscaler
-metadata:
-  name: dashboard-hpa
-  namespace: sdls-dev
-spec:
-  scaleTargetRef:
-    apiVersion: apps/v1
-    kind: Deployment
-    name: dashboard
-  minReplicas: 1
-  maxReplicas: 3
-  metrics:
-    - type: Resource
-      resource:
-        name: cpu
-        target:
-          type: Utilization
-          averageUtilization: 70
-    - type: Resource
-      resource:
-        name: memory
-        target:
-          type: Utilization
-          averageUtilization: 80
