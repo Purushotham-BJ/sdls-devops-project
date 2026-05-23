@@ -1,10 +1,6 @@
 pipeline {
     agent any
 
-    environment {
-        NAMESPACE = "sdls-dev"
-    }
-
     stages {
 
         stage('Check Tools') {
@@ -18,39 +14,28 @@ pipeline {
         stage('Build Images') {
             steps {
 
-                dir('backend/api-gateway') {
-                    sh 'docker build -t api-gateway:latest .'
-                }
+                sh '''
+                docker build -t api-gateway:latest -f backend/api-gateway/Dockerfile backend
 
-                dir('backend/order-service') {
-                    sh 'docker build -t order-service:latest .'
-                }
+                docker build -t order-service:latest -f backend/order-service/Dockerfile backend
 
-                dir('backend/payment-service') {
-                    sh 'docker build -t payment-service:latest .'
-                }
+                docker build -t payment-service:latest -f backend/payment-service/Dockerfile backend
 
-                dir('backend/inventory-service') {
-                    sh 'docker build -t inventory-service:latest .'
-                }
+                docker build -t inventory-service:latest -f backend/inventory-service/Dockerfile backend
 
-                dir('backend/notification-service') {
-                    sh 'docker build -t notification-service:latest .'
-                }
+                docker build -t notification-service:latest -f backend/notification-service/Dockerfile backend
 
-                dir('backend/logging-service') {
-                    sh 'docker build -t logging-service:latest .'
-                }
+                docker build -t logging-service:latest -f backend/logging-service/Dockerfile backend
 
-                dir('frontend/dashboard') {
-                    sh 'docker build -t dashboard:latest .'
-                }
+                docker build -t dashboard:latest frontend/dashboard
+                '''
             }
         }
 
-        stage('Deploy Kubernetes') {
+        stage('Verify Kubernetes') {
             steps {
                 sh 'kubectl get pods -n sdls-dev'
+                sh 'kubectl get svc -n sdls-dev'
             }
         }
     }
