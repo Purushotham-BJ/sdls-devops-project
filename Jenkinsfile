@@ -7,7 +7,14 @@ pipeline {
             steps {
                 sh 'docker --version'
                 sh 'kubectl version --client'
-                sh 'kubectl get nodes'
+sh '''
+for i in {1..20}; do
+  kubectl get nodes && exit 0
+  echo "Waiting for Kubernetes..."
+  sleep 10
+done
+exit 1
+'''
             }
         }
 
